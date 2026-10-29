@@ -12,3 +12,12 @@ cd ${1abc}
 exit 1 2
 exit abc
 cd /tmp
+
+# Этап 3: работа с VFS
+vfs-save $TEMP/vfs_copy.zip
+vfs-save "$TEMP/копия VFS.zip"
+vfs-save
+vfs-save a.zip b.zip
+vfs-save $TEMP
+vfs-save C:/no_such_dir/vfs_copy.zip
+ls

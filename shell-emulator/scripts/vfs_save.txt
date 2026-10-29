@@ -1,0 +1,2 @@
+# Сохранение загруженной VFS на диск в формате ZIP
+vfs-save $TEMP/vfs_copy.zip
