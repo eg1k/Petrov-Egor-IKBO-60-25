@@ -1,0 +1,14 @@
+# Стартовый скрипт: демонстрация всех команд и обработки ошибок
+# Пустые строки и строки, начинающиеся с #, не выполняются
+
+ls
+ls -l /home/user
+cd $USERPROFILE
+cd ${USERNAME}
+ls "$USERNAME docs" '$HOME' a\ b
+pwd
+ls "незакрытая кавычка
+cd ${1abc}
+exit 1 2
+exit abc
+cd /tmp
