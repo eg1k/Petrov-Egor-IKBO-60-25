@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter.scrolledtext import ScrolledText
 
 from shell_parser import ParseError, parse
+from vfs import VFS, VFSError
 
 
 def get_username():
@@ -26,14 +27,16 @@ def get_hostname():
 class Shell:
     """Логика оболочки: разбор строки и выполнение команд."""
 
-    def __init__(self):
+    def __init__(self, vfs=None):
         self.username = get_username()
         self.hostname = get_hostname()
+        self.vfs = vfs if vfs is not None else VFS()
         self.running = True
         self.commands = {
             "ls": self.cmd_stub,
             "cd": self.cmd_stub,
             "exit": self.cmd_exit,
+            "vfs-save": self.cmd_vfs_save,
         }
 
     def execute(self, line):
@@ -62,15 +65,33 @@ class Shell:
         self.running = False
         return "", True
 
+    def cmd_vfs_save(self, name, params):
+        if not params:
+            return "vfs-save: не указан путь для сохранения", False
+        if len(params) > 1:
+            return "vfs-save: слишком много аргументов", False
+        try:
+            self.vfs.save(params[0])
+        except VFSError as e:
+            return "vfs-save: %s" % e, False
+        return "VFS сохранена в %s" % params[0], True
+
 
 class EmulatorApp:
     """Графический интерфейс эмулятора."""
 
     def __init__(self, root, vfs_path=None, script_path=None):
         self.root = root
-        self.shell = Shell()
         self.vfs_path = vfs_path
         self.script_path = script_path
+        self.vfs_error = None
+        vfs = None
+        if vfs_path is not None:
+            try:
+                vfs = VFS.load(vfs_path)
+            except VFSError as e:
+                self.vfs_error = str(e)
+        self.shell = Shell(vfs)
         self.prompt = "%s@%s:~$ " % (self.shell.username, self.shell.hostname)
 
         root.title("Эмулятор - [%s@%s]" % (self.shell.username, self.shell.hostname))
@@ -93,6 +114,7 @@ class EmulatorApp:
 
         self.write("Добро пожаловать в эмулятор оболочки. Для выхода введите exit.\n")
         self.write_params()
+        self.write_vfs_info()
         if self.script_path is not None:
             self.root.after(100, self.run_script)
 
@@ -107,6 +129,19 @@ class EmulatorApp:
         self.write("[debug] Параметры запуска:\n")
         self.write("[debug]   VFS: %s\n" % (self.vfs_path or "(не задан)"))
         self.write("[debug]   Стартовый скрипт: %s\n" % (self.script_path or "(не задан)"))
+
+    def write_vfs_info(self):
+        if self.vfs_error is not None:
+            self.write("Ошибка загрузки VFS: %s\n" % self.vfs_error)
+            self.write("[vfs] Используется пустая VFS\n")
+            return
+        if self.vfs_path is None:
+            self.write("[vfs] VFS не задана, используется пустая VFS\n")
+            return
+        summary, lines = self.shell.vfs.describe()
+        self.write("[vfs] VFS загружена в память из %s (%s)\n" % (self.vfs_path, summary))
+        for line in lines:
+            self.write("[vfs]   %s\n" % line)
 
     def run_line(self, line):
         """Выполняет строку, отображая ввод и вывод как в диалоге.
