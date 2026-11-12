@@ -80,3 +80,43 @@ def build_graph(source, root, filter_substring=""):
 
     dfs(root)
     return graph
+
+
+class ReverseSource:
+    """Источник данных с развёрнутыми рёбрами уже построенного графа.
+
+    "Зависимости" узла здесь — пакеты, которые от него зависят. Это позволяет
+    получить обратные зависимости тем же алгоритмом build_graph (DFS с рекурсией).
+    """
+
+    def __init__(self, graph, name_of):
+        self.parents = {node: [] for node in graph.edges}
+        for node, children in graph.edges.items():
+            for child in children:
+                if node not in self.parents.setdefault(child, []):
+                    self.parents[child].append(node)
+        self._name_of = name_of
+
+    def resolve(self, name, spec=None):
+        return name
+
+    def name_of(self, node):
+        return self._name_of(node)
+
+    def dependencies(self, node):
+        return [(parent, None) for parent in self.parents.get(node, [])]
+
+
+def find_nodes(graph, name_of, target):
+    """Узлы графа, соответствующие пакету target ("имя" или "имя@версия")."""
+    return [n for n in graph.edges if n == target or name_of(n) == target]
+
+
+def reverse_dependencies(graph, target, name_of):
+    """Граф обратных зависимостей узла target внутри графа graph.
+
+    Строится тем же обходом в глубину, что и прямой граф, но по развёрнутым
+    рёбрам: в результат попадают все пакеты, которые зависят от target
+    напрямую или транзитивно.
+    """
+    return build_graph(ReverseSource(graph, name_of), target)

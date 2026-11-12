@@ -1,0 +1,6 @@
+package: A
+repository: ../repos/reverse.txt
+test_repo_mode: file
+version: "1.0.0"
+filter: C
+reverse_of: G
