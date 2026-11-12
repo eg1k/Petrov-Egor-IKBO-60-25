@@ -1,0 +1,5 @@
+package: 123
+repository: not-a-url
+test_repo_mode: maybe
+version: v1
+filter: {x: 1}
