@@ -1,0 +1,4 @@
+package: A
+repository: ../repos/err_format.txt
+test_repo_mode: file
+version: "1.0.0"
