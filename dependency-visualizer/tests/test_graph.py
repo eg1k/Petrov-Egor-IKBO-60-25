@@ -7,7 +7,7 @@ import unittest
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-from graph import build_graph  # noqa: E402
+from graph import build_graph, find_nodes, reverse_dependencies  # noqa: E402
 from test_repo import TestRepoError, TestRepository  # noqa: E402
 
 
@@ -56,6 +56,44 @@ class GraphTest(unittest.TestCase):
     def test_bad_file(self):
         with self.assertRaises(TestRepoError):
             repo("err_format.txt")
+
+
+
+class ReverseTest(unittest.TestCase):
+    def reverse(self, file, root, target, filt=""):
+        src = repo(file)
+        g = build_graph(src, root, filt)
+        return reverse_dependencies(g, target, src.name_of)
+
+    def test_reverse_transitive(self):
+        r = self.reverse("reverse.txt", "A", "G")
+        self.assertEqual(r.edges["G"], ["D", "E"])
+        self.assertEqual(set(r.nodes) - {"G"}, {"A", "B", "C", "D", "E"})
+        self.assertEqual(r.edges["E"], ["B", "C"])
+
+    def test_reverse_single_path(self):
+        r = self.reverse("reverse.txt", "A", "F")
+        self.assertEqual(r.edges, {"F": ["C"], "C": ["A"], "A": []})
+
+    def test_reverse_of_root(self):
+        r = self.reverse("simple.txt", "A", "A")
+        self.assertEqual(r.edges, {"A": []})
+
+    def test_reverse_cycle(self):
+        r = self.reverse("cycle.txt", "A", "B")
+        self.assertEqual(set(r.nodes), {"A", "B", "C"})
+        self.assertEqual(r.cycles, [["B", "A", "C", "B"]])
+
+    def test_reverse_with_filter(self):
+        r = self.reverse("reverse.txt", "A", "G", "C")
+        self.assertNotIn("C", r.edges)
+        self.assertEqual(r.edges["E"], ["B"])
+
+    def test_find_nodes(self):
+        src = repo("simple.txt")
+        g = build_graph(src, "A")
+        self.assertEqual(find_nodes(g, src.name_of, "D"), ["D"])
+        self.assertEqual(find_nodes(g, src.name_of, "Q"), [])
 
 
 if __name__ == "__main__":
