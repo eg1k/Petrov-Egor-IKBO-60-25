@@ -28,3 +28,7 @@ for %%F in ("%CONFIGS%\*.yaml") do (
     call echo [код возврата: %%ERRORLEVEL%%]
     echo.
 )
+
+echo ===== Модульные тесты =====
+%PYTHON% -m unittest discover -s "%~dp0." -v
+echo [код возврата: %ERRORLEVEL%]
