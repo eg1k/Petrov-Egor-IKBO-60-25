@@ -1,0 +1,4 @@
+package: lodash
+repository: https://registry.npmjs.org
+test_repo_mode: off
+version: "4.17.21"

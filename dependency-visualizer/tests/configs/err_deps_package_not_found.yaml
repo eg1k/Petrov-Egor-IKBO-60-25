@@ -1,0 +1,4 @@
+package: no-such-package-ikbo-60-25-variant-23
+repository: https://registry.npmjs.org
+test_repo_mode: off
+version: "1.0.0"
