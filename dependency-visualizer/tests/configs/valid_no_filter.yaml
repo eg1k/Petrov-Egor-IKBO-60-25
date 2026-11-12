@@ -1,0 +1,4 @@
+package: "@babel/core"
+repository: https://registry.npmjs.org
+test_repo_mode: off
+version: latest

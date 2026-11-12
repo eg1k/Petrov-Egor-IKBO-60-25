@@ -1,0 +1,23 @@
+# Виртуальное окружение
+.venv/
+venv/
+
+# Служебные файлы Python
+__pycache__/
+*.py[cod]
+
+# Артефакты сборки
+build/
+dist/
+*.egg-info/
+
+# Настройки редакторов кода
+.vscode/
+.idea/
+
+# Архивы
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar

@@ -1,0 +1,4 @@
+package: express
+repository: https://registry.npmjs.org
+test_repo_mode: remote
+version: "1.0.0"

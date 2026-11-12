@@ -1,0 +1,5 @@
+package: express
+repository: https://registry.npmjs.org
+test_repo_mode: off
+version: "1.0.0"
+filter: [a, b]

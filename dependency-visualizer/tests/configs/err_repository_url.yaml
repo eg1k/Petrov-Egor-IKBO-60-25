@@ -1,0 +1,4 @@
+package: express
+repository: ftp//registry.npmjs.org
+test_repo_mode: off
+version: "1.0.0"
