@@ -7,13 +7,17 @@
 
 import json
 import socket
+import ssl
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from semver import SemverError, max_satisfying
+from semver import Range, SemverError, Version, max_satisfying
 
 TIMEOUT = 15  # секунд
+RETRIES = 3  # попыток при временных сетевых сбоях
+RETRY_DELAY = 1.0  # секунд, растёт с каждой попыткой
 # Сокращённый формат метаданных (используется самим npm при установке):
 # содержит все версии пакета с их зависимостями, но без README и т. п.
 ACCEPT = "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8"
@@ -31,19 +35,30 @@ def package_url(registry, package):
     return f"{registry.rstrip('/')}/{quote(package, safe='@')}"
 
 
-def _fetch_json(url, what):
+def _download(url, what):
+    """Один HTTP-запрос; временные сетевые сбои повторяются до RETRIES раз."""
     request = Request(url, headers={"Accept": ACCEPT})
-    try:
-        with urlopen(request, timeout=TIMEOUT) as response:
-            raw = response.read()
-    except HTTPError as e:
-        if e.code == 404:
-            raise RegistryError(f"{what} не найден в репозитории ({url})")
-        raise RegistryError(f"репозиторий вернул ошибку HTTP {e.code} ({url})")
-    except (socket.timeout, TimeoutError):
-        raise RegistryError(f"превышено время ожидания ответа от {url}")
-    except URLError as e:
-        raise RegistryError(f"не удалось подключиться к репозиторию {url}: {e.reason}")
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with urlopen(request, timeout=TIMEOUT) as response:
+                return response.read()
+        except HTTPError as e:
+            if e.code == 404:
+                raise RegistryError(f"{what} не найден в репозитории ({url})")
+            if e.code < 500 or attempt == RETRIES:
+                raise RegistryError(f"репозиторий вернул ошибку HTTP {e.code} ({url})")
+        except (socket.timeout, TimeoutError):
+            if attempt == RETRIES:
+                raise RegistryError(f"превышено время ожидания ответа от {url}")
+        except (URLError, ConnectionError, ssl.SSLError) as e:
+            if attempt == RETRIES:
+                reason = getattr(e, "reason", e)
+                raise RegistryError(f"не удалось подключиться к репозиторию {url}: {reason}")
+        time.sleep(RETRY_DELAY * attempt)
+
+
+def _fetch_json(url, what):
+    raw = _download(url, what)
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -63,6 +78,25 @@ def direct_dependencies(manifest):
     if not isinstance(deps, dict):
         raise RegistryError("поле dependencies в манифесте имеет неверный формат")
     return {str(name): str(spec) for name, spec in deps.items()}
+
+
+def pick_version(versions, tags, spec):
+    """Выбор версии по диапазону по тем же правилам, что и у npm.
+
+    1. Если версия с тегом latest подходит под диапазон — берётся она, даже
+       если опубликованы более новые подходящие версии (так делает npm).
+    2. Иначе — наибольшая подходящая версия, не помеченная как устаревшая.
+    3. Если подходят только устаревшие — наибольшая из них.
+    """
+    latest = tags.get("latest")
+    if latest in versions:
+        try:
+            if Range(spec).test(Version.parse(latest)):
+                return latest
+        except SemverError:
+            pass
+    actual = [v for v, m in versions.items() if not (isinstance(m, dict) and m.get("deprecated"))]
+    return max_satisfying(actual, spec) or max_satisfying(versions.keys(), spec)
 
 
 class NpmRegistry:
@@ -104,7 +138,7 @@ class NpmRegistry:
             version = spec
         else:
             try:
-                version = max_satisfying(versions.keys(), spec or "*")
+                version = pick_version(versions, tags, spec or "*")
             except SemverError as e:
                 raise RegistryError(f"{name}: неподдерживаемая спецификация версии {spec!r} ({e})")
             if version is None:
