@@ -5,6 +5,7 @@
 Этап 3: построение графа зависимостей (DFS с рекурсией), фильтрация
         пакетов, обработка циклов, режим тестового репозитория.
 Этап 4: вывод обратных зависимостей заданного пакета (параметр reverse_of).
+Этап 5: визуализация — текст графа на языке Mermaid и изображение в браузере.
 """
 
 import argparse
@@ -13,10 +14,12 @@ import sys
 
 from config import ConfigError, load_config
 from graph import build_graph, find_nodes, reverse_dependencies
+from mermaid import save_and_show
 from npm_registry import NpmRegistry, RegistryError
 from test_repo import TestRepoError, TestRepository
 
 DEFAULT_CONFIG = "config.yaml"
+DEFAULT_OUTPUT = "output"
 
 
 def parse_args(argv=None):
@@ -27,6 +30,16 @@ def parse_args(argv=None):
         "-c", "--config",
         default=DEFAULT_CONFIG,
         help=f"путь к конфигурационному файлу YAML (по умолчанию {DEFAULT_CONFIG})",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default=DEFAULT_OUTPUT,
+        help=f"каталог для файлов диаграммы .mmd и .html (по умолчанию {DEFAULT_OUTPUT})",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="не открывать изображение графа в браузере (только сохранить файлы)",
     )
     return parser.parse_args(argv)
 
@@ -92,6 +105,18 @@ def print_reverse(rev, graph, config):
             print("  " + " <- ".join(cycle))
 
 
+def visualize(graph, title, args, reverse=False):
+    """Этап 5: вывод текста Mermaid и показ изображения графа."""
+    text, mmd_path, html_path = save_and_show(
+        graph, title, args.output, reverse=reverse, show=not args.no_show
+    )
+    print()
+    print("Граф на языке Mermaid:")
+    print(text)
+    print(f"Текст диаграммы сохранён: {mmd_path}")
+    print(f"Изображение: {html_path}" + ("" if args.no_show else " (открыто в браузере)"))
+
+
 def main(argv=None):
     args = parse_args(argv)
     try:
@@ -122,6 +147,7 @@ def main(argv=None):
     graph = build_graph(source, root, config.filter)
     if not config.reverse_of:
         print_graph(graph, config)
+        visualize(graph, f"Граф зависимостей {graph.root}", args)
         return 0
 
     # Этап 4: обратные зависимости ищутся в графе зависимостей пакета package.
@@ -136,7 +162,9 @@ def main(argv=None):
     for i, target in enumerate(targets):
         if i:
             print("\n" + "-" * 60 + "\n")
-        print_reverse(reverse_dependencies(graph, target, source.name_of), graph, config)
+        rev = reverse_dependencies(graph, target, source.name_of)
+        print_reverse(rev, graph, config)
+        visualize(rev, f"Обратные зависимости {target} в графе {graph.root}", args, reverse=True)
     for warning in graph.warnings:
         print(f"Предупреждение: {warning}", file=sys.stderr)
     return 0
