@@ -22,7 +22,6 @@ class VFSFile:
             self.content = data.decode("utf-8")
             self.binary = False
         except UnicodeDecodeError:
-            # Двоичные данные хранятся в base64
             self.content = base64.b64encode(data).decode("ascii")
             self.binary = True
 
@@ -52,16 +51,7 @@ class VFS:
         try:
             with zipfile.ZipFile(path, "r") as archive:
                 for info in archive.infolist():
-                    parts = split_path(info.filename)
-                    if not parts:
-                        continue
-                    if info.is_dir():
-                        vfs._make_dirs(parts)
-                    else:
-                        parent = vfs._make_dirs(parts[:-1])
-                        if parts[-1] in parent.children:
-                            raise VFSError("повторяющийся элемент '%s'" % info.filename)
-                        parent.children[parts[-1]] = VFSFile(parts[-1], archive.read(info))
+                    vfs._load_entry(archive, info)
         except FileNotFoundError:
             raise VFSError("файл '%s' не найден" % path)
         except IsADirectoryError:
@@ -74,6 +64,18 @@ class VFS:
             raise VFSError("не удалось прочитать '%s': %s" % (path, e.strerror))
         return vfs
 
+    def _load_entry(self, archive, info):
+        parts = split_path(info.filename)
+        if not parts:
+            return
+        if info.is_dir():
+            self._make_dirs(parts)
+        else:
+            parent = self._make_dirs(parts[:-1])
+            if parts[-1] in parent.children:
+                raise VFSError("повторяющийся элемент '%s'" % info.filename)
+            parent.children[parts[-1]] = VFSFile(parts[-1], archive.read(info))
+
     def _make_dirs(self, parts):
         node = self.root
         for part in parts:
@@ -82,7 +84,9 @@ class VFS:
                 child = VFSDir(part)
                 node.children[part] = child
             elif not isinstance(child, VFSDir):
-                raise VFSError("'%s' одновременно файл и каталог" % "/".join(parts))
+                raise VFSError(
+                    "'%s' одновременно файл и каталог" % "/".join(parts)
+                )
             node = child
         return node
 

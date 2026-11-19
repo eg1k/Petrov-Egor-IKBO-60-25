@@ -54,7 +54,7 @@ class Shell:
         return handler(name, params)
 
     def cmd_stub(self, name, params):
-        # Заглушка: выводит имя команды и её аргументы
+        """Выводит имя команды и её аргументы."""
         return "Команда: %s, аргументы: %s" % (name, params), True
 
     def cmd_exit(self, name, params):
@@ -94,29 +94,53 @@ class EmulatorApp:
         self.shell = Shell(vfs)
         self.prompt = "%s@%s:~$ " % (self.shell.username, self.shell.hostname)
 
-        root.title("Эмулятор - [%s@%s]" % (self.shell.username, self.shell.hostname))
-        root.geometry("800x500")
+        self._build_widgets(root)
 
-        self.output = ScrolledText(root, bg="black", fg="white",
-                                   insertbackground="white", font=("Consolas", 11),
-                                   state="disabled", wrap="word")
-        self.output.pack(fill="both", expand=True)
-
-        bottom = tk.Frame(root, bg="black")
-        bottom.pack(fill="x")
-        tk.Label(bottom, text=self.prompt, bg="black", fg="lime",
-                 font=("Consolas", 11)).pack(side="left")
-        self.entry = tk.Entry(bottom, bg="black", fg="white", insertbackground="white",
-                              font=("Consolas", 11), relief="flat")
-        self.entry.pack(side="left", fill="x", expand=True)
-        self.entry.bind("<Return>", self.on_enter)
-        self.entry.focus_set()
-
-        self.write("Добро пожаловать в эмулятор оболочки. Для выхода введите exit.\n")
+        self.write(
+            "Добро пожаловать в эмулятор оболочки. Для выхода введите exit.\n"
+        )
         self.write_params()
         self.write_vfs_info()
         if self.script_path is not None:
             self.root.after(100, self.run_script)
+
+    def _build_widgets(self, root):
+        root.title(
+            "Эмулятор - [%s@%s]" % (self.shell.username, self.shell.hostname)
+        )
+        root.geometry("800x500")
+
+        self.output = ScrolledText(
+            root,
+            bg="black",
+            fg="white",
+            insertbackground="white",
+            font=("Consolas", 11),
+            state="disabled",
+            wrap="word",
+        )
+        self.output.pack(fill="both", expand=True)
+
+        bottom = tk.Frame(root, bg="black")
+        bottom.pack(fill="x")
+        tk.Label(
+            bottom,
+            text=self.prompt,
+            bg="black",
+            fg="lime",
+            font=("Consolas", 11),
+        ).pack(side="left")
+        self.entry = tk.Entry(
+            bottom,
+            bg="black",
+            fg="white",
+            insertbackground="white",
+            font=("Consolas", 11),
+            relief="flat",
+        )
+        self.entry.pack(side="left", fill="x", expand=True)
+        self.entry.bind("<Return>", self.on_enter)
+        self.entry.focus_set()
 
     def write(self, text):
         self.output.configure(state="normal")
@@ -125,10 +149,13 @@ class EmulatorApp:
         self.output.configure(state="disabled")
 
     def write_params(self):
-        # Отладочный вывод всех параметров, заданных при запуске
+        """Выводит параметры запуска в отладочном режиме."""
         self.write("[debug] Параметры запуска:\n")
         self.write("[debug]   VFS: %s\n" % (self.vfs_path or "(не задан)"))
-        self.write("[debug]   Стартовый скрипт: %s\n" % (self.script_path or "(не задан)"))
+        self.write(
+            "[debug]   Стартовый скрипт: %s\n"
+            % (self.script_path or "(не задан)")
+        )
 
     def write_vfs_info(self):
         if self.vfs_error is not None:
@@ -139,7 +166,10 @@ class EmulatorApp:
             self.write("[vfs] VFS не задана, используется пустая VFS\n")
             return
         summary, lines = self.shell.vfs.describe()
-        self.write("[vfs] VFS загружена в память из %s (%s)\n" % (self.vfs_path, summary))
+        self.write(
+            "[vfs] VFS загружена в память из %s (%s)\n"
+            % (self.vfs_path, summary)
+        )
         for line in lines:
             self.write("[vfs]   %s\n" % line)
 
@@ -161,20 +191,25 @@ class EmulatorApp:
             with open(self.script_path, encoding="utf-8") as f:
                 lines = f.read().splitlines()
         except OSError as e:
-            self.write("Ошибка: не удалось открыть стартовый скрипт '%s': %s\n"
-                       % (self.script_path, e.strerror))
+            self.write(
+                "Ошибка: не удалось открыть стартовый скрипт '%s': %s\n"
+                % (self.script_path, e.strerror)
+            )
             return
 
-        self.write("[script] Выполнение стартового скрипта %s\n" % self.script_path)
+        self.write(
+            "[script] Выполнение стартового скрипта %s\n" % self.script_path
+        )
         for number, line in enumerate(lines, 1):
-            # Пустые строки и комментарии не выполняются
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
             ok = self.run_line(line)
             if not self.shell.running:
                 return
             if not ok:
-                self.write("[script] Строка %d пропущена из-за ошибки\n" % number)
+                self.write(
+                    "[script] Строка %d пропущена из-за ошибки\n" % number
+                )
         self.write("[script] Стартовый скрипт завершён\n")
 
     def on_enter(self, event=None):
@@ -185,10 +220,12 @@ class EmulatorApp:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Эмулятор языка оболочки ОС")
-    parser.add_argument("--vfs", metavar="ПУТЬ",
-                        help="путь к физическому расположению VFS")
-    parser.add_argument("--script", metavar="ПУТЬ",
-                        help="путь к стартовому скрипту")
+    parser.add_argument(
+        "--vfs", metavar="ПУТЬ", help="путь к физическому расположению VFS"
+    )
+    parser.add_argument(
+        "--script", metavar="ПУТЬ", help="путь к стартовому скрипту"
+    )
     return parser.parse_args(argv)
 
 
