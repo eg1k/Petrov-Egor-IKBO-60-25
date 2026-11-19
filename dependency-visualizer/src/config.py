@@ -7,18 +7,12 @@ from urllib.parse import urlparse
 
 import yaml
 
-# Режимы работы с тестовым репозиторием.
-#   off  — работа с реальным репозиторием по URL;
-#   file — вместо репозитория используется файл описания графа.
+MAX_NPM_NAME_LENGTH = 214
 REPO_MODES = ("off", "file")
 
-# Имя пакета npm: необязательный scope (@scope/), далее строчные буквы,
-# цифры и символы - . _ ~; длина не более 214 символов.
-# В тестовом режиме пакеты называются большими латинскими буквами.
 NPM_NAME_RE = re.compile(r"^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$")
 TEST_NAME_RE = re.compile(r"^[A-Z]+$")
 
-# Версия в формате SemVer (MAJOR.MINOR.PATCH[-pre][+build]) или "latest".
 SEMVER_RE = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?"
@@ -40,12 +34,13 @@ class ConfigError(Exception):
 
 @dataclass
 class Config:
+    """Параметры CLI. Пустой reverse_of отключает обратный граф."""
+
     package: str
     repository: str
     test_repo_mode: str
     version: str
     filter: str
-    # Этап 4: пакет, для которого выводятся обратные зависимости ("" — режим выключен).
     reverse_of: str = ""
 
     def items(self):
@@ -78,8 +73,10 @@ def _read_yaml(path):
         raise ConfigError([f"конфигурационный файл пуст: {path}"])
     if not isinstance(data, dict):
         raise ConfigError(
-            ["корень конфигурации должен быть словарём (ключ: значение), "
-             f"получено: {type(data).__name__}"]
+            [
+                "корень конфигурации должен быть словарём (ключ: значение), "
+                f"получено: {type(data).__name__}"
+            ]
         )
     return data
 
@@ -98,7 +95,6 @@ def _check_str(data, key, errors, allow_empty=False):
         )
         return None
     if not isinstance(value, str):
-        # Например, version: 1.0 YAML прочитает как число.
         errors.append(
             f"{key}: ожидается строка, получено число {value!r} "
             "(заключите значение в кавычки)"
@@ -112,9 +108,10 @@ def _check_str(data, key, errors, allow_empty=False):
 
 
 def _check_mode(data, errors):
+    """Проверяет режим с учётом булевых значений YAML."""
+
     value = data.get("test_repo_mode")
     if isinstance(value, bool):
-        # YAML превращает off/on/yes/no в bool — допускаем это.
         value = "file" if value else "off"
     if value is None:
         errors.append("test_repo_mode: значение не задано")
@@ -136,11 +133,14 @@ def _check_mode(data, errors):
 
 
 def _check_repository(repo, mode, base_dir, errors):
+    """Проверяет URL или файл относительно каталога конфигурации."""
+
     if mode == "file":
-        # Относительный путь отсчитывается от каталога конфигурационного файла.
         repo = os.path.normpath(os.path.join(base_dir, repo))
         if not os.path.exists(repo):
-            errors.append(f"repository: файл тестового репозитория не найден: {repo}")
+            errors.append(
+                f"repository: файл тестового репозитория не найден: {repo}"
+            )
         elif not os.path.isfile(repo):
             errors.append(f"repository: путь не является файлом: {repo}")
         return
@@ -160,8 +160,57 @@ def _check_package_name(key, name, mode, errors):
                 f"{key}: в тестовом режиме имя пакета — большие "
                 f"латинские буквы, получено {name!r}"
             )
-    elif len(name) > 214 or not NPM_NAME_RE.match(name):
+    elif len(name) > MAX_NPM_NAME_LENGTH or not NPM_NAME_RE.match(name):
         errors.append(f"{key}: недопустимое имя npm-пакета {name!r}")
+
+
+def _check_keys(data, errors):
+    for key in data:
+        if key not in ALL_KEYS:
+            errors.append(
+                f"неизвестный параметр {key!r}, "
+                f"допустимы: {', '.join(ALL_KEYS)}"
+            )
+    for key in REQUIRED_KEYS:
+        if key not in data:
+            errors.append(f"{key}: обязательный параметр отсутствует")
+
+
+def _check_reverse(data, mode, filt, errors):
+    """Проверяет имя для обратного графа и версию в режиме npm."""
+
+    reverse_of = _check_str(data, "reverse_of", errors, allow_empty=True)
+    if reverse_of:
+        name = reverse_of
+        if mode != "file" and "@" in reverse_of[1:]:
+            at = reverse_of.rfind("@")
+            name, ver = reverse_of[:at], reverse_of[at + 1 :]
+            if not SEMVER_RE.match(ver):
+                errors.append(
+                    f"reverse_of: некорректная версия {ver!r} в {reverse_of!r}"
+                )
+        _check_package_name("reverse_of", name, mode, errors)
+        if filt and filt in name:
+            errors.append(
+                f"reverse_of: имя пакета {name!r} содержит "
+                f"подстроку фильтра {filt!r}"
+            )
+
+    return reverse_of
+
+
+def _check_version(data, errors):
+    version = _check_str(data, "version", errors) if "version" in data else None
+    if (
+        version is not None
+        and version != "latest"
+        and not SEMVER_RE.match(version)
+    ):
+        errors.append(
+            f"version: ожидается версия вида 1.2.3 или 'latest', "
+            f"получено {version!r}"
+        )
+    return version
 
 
 def load_config(path):
@@ -172,14 +221,7 @@ def load_config(path):
     data = _read_yaml(path)
     errors = []
 
-    for key in data:
-        if key not in ALL_KEYS:
-            errors.append(
-                f"неизвестный параметр {key!r}, допустимы: {', '.join(ALL_KEYS)}"
-            )
-    for key in REQUIRED_KEYS:
-        if key not in data:
-            errors.append(f"{key}: обязательный параметр отсутствует")
+    _check_keys(data, errors)
 
     mode = _check_mode(data, errors) if "test_repo_mode" in data else None
 
@@ -187,32 +229,18 @@ def load_config(path):
     if package is not None:
         _check_package_name("package", package, mode, errors)
 
-    repo = _check_str(data, "repository", errors) if "repository" in data else None
+    repo = (
+        _check_str(data, "repository", errors) if "repository" in data else None
+    )
     if repo is not None and mode is not None:
-        _check_repository(repo, mode, os.path.dirname(os.path.abspath(path)), errors)
-
-    version = _check_str(data, "version", errors) if "version" in data else None
-    if version is not None and version != "latest" and not SEMVER_RE.match(version):
-        errors.append(
-            f"version: ожидается версия вида 1.2.3 или 'latest', получено {version!r}"
+        _check_repository(
+            repo, mode, os.path.dirname(os.path.abspath(path)), errors
         )
 
+    version = _check_version(data, errors)
     filt = _check_str(data, "filter", errors, allow_empty=True)
 
-    reverse_of = _check_str(data, "reverse_of", errors, allow_empty=True)
-    if reverse_of:
-        # В реальном режиме можно указать конкретную версию: имя@версия.
-        name = reverse_of
-        if mode != "file" and "@" in reverse_of[1:]:
-            at = reverse_of.rfind("@")
-            name, ver = reverse_of[:at], reverse_of[at + 1:]
-            if not SEMVER_RE.match(ver):
-                errors.append(f"reverse_of: некорректная версия {ver!r} в {reverse_of!r}")
-        _check_package_name("reverse_of", name, mode, errors)
-        if filt and filt in name:
-            errors.append(
-                f"reverse_of: имя пакета {name!r} содержит подстроку фильтра {filt!r}"
-            )
+    reverse_of = _check_reverse(data, mode, filt, errors)
 
     if errors:
         raise ConfigError(errors)

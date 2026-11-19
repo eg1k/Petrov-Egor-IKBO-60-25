@@ -9,18 +9,19 @@ import json
 import socket
 import ssl
 import time
+from http import HTTPStatus
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from semver import Range, SemverError, Version, max_satisfying
 
-TIMEOUT = 15  # секунд
-RETRIES = 3  # попыток при временных сетевых сбоях
-RETRY_DELAY = 1.0  # секунд, растёт с каждой попыткой
-# Сокращённый формат метаданных (используется самим npm при установке):
-# содержит все версии пакета с их зависимостями, но без README и т. п.
-ACCEPT = "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8"
+TIMEOUT = 15
+RETRIES = 3
+RETRY_DELAY = 1.0
+ACCEPT = (
+    "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8"
+)
 
 
 class RegistryError(Exception):
@@ -30,7 +31,8 @@ class RegistryError(Exception):
 def package_url(registry, package):
     """URL метаданных пакета: <registry>/<имя>.
 
-    Для пакетов с областью видимости (@scope/name) символ '/' кодируется как %2F.
+    Для пакетов с областью видимости (@scope/name) символ '/'
+    кодируется как %2F.
     """
     return f"{registry.rstrip('/')}/{quote(package, safe='@')}"
 
@@ -43,17 +45,21 @@ def _download(url, what):
             with urlopen(request, timeout=TIMEOUT) as response:
                 return response.read()
         except HTTPError as e:
-            if e.code == 404:
+            if e.code == HTTPStatus.NOT_FOUND:
                 raise RegistryError(f"{what} не найден в репозитории ({url})")
-            if e.code < 500 or attempt == RETRIES:
-                raise RegistryError(f"репозиторий вернул ошибку HTTP {e.code} ({url})")
+            if e.code < HTTPStatus.INTERNAL_SERVER_ERROR or attempt == RETRIES:
+                raise RegistryError(
+                    f"репозиторий вернул ошибку HTTP {e.code} ({url})"
+                )
         except (socket.timeout, TimeoutError):
             if attempt == RETRIES:
                 raise RegistryError(f"превышено время ожидания ответа от {url}")
         except (URLError, ConnectionError, ssl.SSLError) as e:
             if attempt == RETRIES:
                 reason = getattr(e, "reason", e)
-                raise RegistryError(f"не удалось подключиться к репозиторию {url}: {reason}")
+                raise RegistryError(
+                    f"не удалось подключиться к репозиторию {url}: {reason}"
+                )
         time.sleep(RETRY_DELAY * attempt)
 
 
@@ -62,7 +68,9 @@ def _fetch_json(url, what):
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise RegistryError(f"ответ репозитория не является корректным JSON ({url})")
+        raise RegistryError(
+            f"ответ репозитория не является корректным JSON ({url})"
+        )
     if not isinstance(data, dict):
         raise RegistryError(f"неожиданный формат ответа репозитория ({url})")
     return data
@@ -76,7 +84,9 @@ def direct_dependencies(manifest):
     """
     deps = manifest.get("dependencies") or {}
     if not isinstance(deps, dict):
-        raise RegistryError("поле dependencies в манифесте имеет неверный формат")
+        raise RegistryError(
+            "поле dependencies в манифесте имеет неверный формат"
+        )
     return {str(name): str(spec) for name, spec in deps.items()}
 
 
@@ -95,8 +105,23 @@ def pick_version(versions, tags, spec):
                 return latest
         except SemverError:
             pass
-    actual = [v for v, m in versions.items() if not (isinstance(m, dict) and m.get("deprecated"))]
+    actual = [
+        v
+        for v, m in versions.items()
+        if not (isinstance(m, dict) and m.get("deprecated"))
+    ]
     return max_satisfying(actual, spec) or max_satisfying(versions.keys(), spec)
+
+
+def _resolve_alias(name, spec):
+    """Разбирает псевдоним npm:имя@диапазон с учётом scope."""
+    if not spec.startswith("npm:"):
+        return name, spec
+    target = spec[4:]
+    at = target.rfind("@")
+    if at > 0:
+        return target[:at], target[at + 1 :]
+    return target, "latest"
 
 
 class NpmRegistry:
@@ -115,19 +140,14 @@ class NpmRegistry:
 
     def packument(self, name):
         if name not in self._cache:
-            self._cache[name] = _fetch_json(package_url(self.registry, name), f"пакет {name!r}")
+            self._cache[name] = _fetch_json(
+                package_url(self.registry, name), f"пакет {name!r}"
+            )
         return self._cache[name]
 
     def resolve(self, name, spec):
         """Подбирает конкретную версию пакета по диапазону; возвращает узел."""
-        if spec.startswith("npm:"):
-            # Псевдоним: "npm:настоящее-имя@диапазон".
-            target = spec[4:]
-            at = target.rfind("@")
-            if at > 0:
-                name, spec = target[:at], target[at + 1:]
-            else:
-                name, spec = target, "latest"
+        name, spec = _resolve_alias(name, spec)
         data = self.packument(name)
         versions = data.get("versions") or {}
         tags = data.get("dist-tags") or {}
@@ -140,17 +160,24 @@ class NpmRegistry:
             try:
                 version = pick_version(versions, tags, spec or "*")
             except SemverError as e:
-                raise RegistryError(f"{name}: неподдерживаемая спецификация версии {spec!r} ({e})")
+                raise RegistryError(
+                    f"{name}: неподдерживаемая спецификация "
+                    f"версии {spec!r} ({e})"
+                )
             if version is None:
-                raise RegistryError(f"{name}: нет версии, подходящей под {spec!r}")
+                raise RegistryError(
+                    f"{name}: нет версии, подходящей под {spec!r}"
+                )
         if version not in versions:
-            raise RegistryError(f"пакет {name!r} версии {version!r} не найден в репозитории")
+            raise RegistryError(
+                f"пакет {name!r} версии {version!r} не найден в репозитории"
+            )
         return f"{name}@{version}"
 
     @staticmethod
     def split(node):
         at = node.rfind("@")
-        return node[:at], node[at + 1:]
+        return node[:at], node[at + 1 :]
 
     def name_of(self, node):
         return self.split(node)[0]

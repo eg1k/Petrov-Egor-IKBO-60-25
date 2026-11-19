@@ -11,20 +11,22 @@
 import sys
 from dataclasses import dataclass, field
 
-# Глубина дерева зависимостей может быть большой — увеличиваем лимит рекурсии.
 sys.setrecursionlimit(max(sys.getrecursionlimit(), 10000))
 
 
 @dataclass
 class DependencyGraph:
+    """Хранит список смежности в порядке обхода, циклы и диагностику.
+
+    Цикл представлен путём с повтором начального узла в конце.
+    Поле filtered содержит имена пакетов, исключённых фильтром,
+    а warnings — сообщения о недоступных данных.
+    """
+
     root: str
-    # Список смежности в порядке обхода: узел -> его прямые зависимости.
     edges: dict = field(default_factory=dict)
-    # Найденные циклы: списки узлов вида [A, B, C, A].
     cycles: list = field(default_factory=list)
-    # Имена пакетов, исключённых фильтром.
     filtered: set = field(default_factory=set)
-    # Предупреждения (не удалось получить данные о части пакетов и т. п.).
     warnings: list = field(default_factory=list)
 
     @property
@@ -45,35 +47,21 @@ def build_graph(source, root, filter_substring=""):
       продолжается, поэтому зацикливания не происходит.
     """
     graph = DependencyGraph(root)
-    state = {}  # узел -> "visiting" (в стеке обхода) | "done" (обработан)
-    path = []   # текущий путь от корня
+    state = {}
+    path = []
 
     def dfs(node):
         state[node] = "visiting"
         path.append(node)
         children = []
-        graph.edges[node] = children  # сохраняем порядок обхода (pre-order)
-        try:
-            deps = source.dependencies(node)
-        except Exception as e:  # нет данных о пакете — считаем его листом
-            graph.warnings.append(f"{node}: не удалось получить зависимости ({e})")
-            deps = []
-
-        for name, spec in deps:
-            if filter_substring and filter_substring in name:
-                graph.filtered.add(name)
-                continue
-            try:
-                child = source.resolve(name, spec)
-            except Exception as e:
-                graph.warnings.append(f"{node} -> {name} {spec or ''}: {e}".rstrip())
-                continue
+        graph.edges[node] = children
+        for child in _resolve_children(source, node, graph, filter_substring):
             if child not in children:
                 children.append(child)
             if state.get(child) is None:
                 dfs(child)
             elif state[child] == "visiting":
-                graph.cycles.append(path[path.index(child):] + [child])
+                graph.cycles.append(path[path.index(child) :] + [child])
 
         path.pop()
         state[node] = "done"
@@ -82,11 +70,35 @@ def build_graph(source, root, filter_substring=""):
     return graph
 
 
+def _resolve_children(source, node, graph, filter_substring):
+    for name, spec in _dependencies(source, node, graph):
+        if filter_substring and filter_substring in name:
+            graph.filtered.add(name)
+            continue
+        try:
+            child = source.resolve(name, spec)
+        except Exception as e:
+            graph.warnings.append(
+                f"{node} -> {name} {spec or ''}: {e}".rstrip()
+            )
+            continue
+        yield child
+
+
+def _dependencies(source, node, graph):
+    """При недоступных метаданных оставляет пакет листом графа."""
+    try:
+        return source.dependencies(node)
+    except Exception as e:
+        graph.warnings.append(f"{node}: не удалось получить зависимости ({e})")
+        return []
+
+
 class ReverseSource:
     """Источник данных с развёрнутыми рёбрами уже построенного графа.
 
     "Зависимости" узла здесь — пакеты, которые от него зависят. Это позволяет
-    получить обратные зависимости тем же алгоритмом build_graph (DFS с рекурсией).
+    получить обратные зависимости тем же рекурсивным алгоритмом build_graph.
     """
 
     def __init__(self, graph, name_of):

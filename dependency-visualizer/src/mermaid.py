@@ -42,7 +42,9 @@ def to_mermaid(graph, reverse=False, direction="TD"):
             src, dst = (child, node) if reverse else (node, child)
             arrow = "-.->" if (node, child) in cycle_edges else "-->"
             lines.append(f"    {ids[src]} {arrow} {ids[dst]}")
-    lines.append("    classDef root fill:#ffd966,stroke:#b45f06,stroke-width:2px")
+    lines.append(
+        "    classDef root fill:#ffd966,stroke:#b45f06,stroke-width:2px"
+    )
     lines.append(f"    class {ids[graph.root]} root")
     return "\n".join(lines) + "\n"
 
@@ -60,7 +62,8 @@ def html_page(title, mermaid_text):
 <meta charset="utf-8">
 <title>{html.escape(title)}</title>
 <style>
-  body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px; background: #fff; color: #222; }}
+  body {{ font-family: Segoe UI, Arial, sans-serif; margin: 24px;
+          background: #fff; color: #222; }}
   h1 {{ font-size: 20px; }}
   pre {{ background: #f4f4f4; padding: 12px; overflow: auto; }}
   pre.mermaid {{ background: none; padding: 0; }}
@@ -72,11 +75,13 @@ def html_page(title, mermaid_text):
 </head>
 <body>
 <h1>{html.escape(title)}</h1>
-<label><input type="checkbox" onchange="document.body.classList.toggle('full', this.checked)">
+<label><input type="checkbox"
+  onchange="document.body.classList.toggle('full', this.checked)">
   реальный размер (по умолчанию граф вписан в окно)</label>
 <pre class="mermaid">
 {html.escape(mermaid_text)}</pre>
-<details><summary>Текст диаграммы Mermaid</summary><pre>{html.escape(mermaid_text)}</pre></details>
+<details><summary>Текст диаграммы Mermaid</summary>
+<pre>{html.escape(mermaid_text)}</pre></details>
 <script src="{MERMAID_JS}"></script>
 <script>
   mermaid.initialize({{ startOnLoad: true, maxTextSize: 1000000, maxEdges: 5000,
@@ -87,20 +92,34 @@ def html_page(title, mermaid_text):
 """
 
 
+HORIZONTAL_LAYOUT_NODE_THRESHOLD = 15
+
+
 def save_and_show(graph, title, out_dir, reverse=False, show=True):
     """Сохраняет .mmd и .html в out_dir и открывает изображение в браузере.
 
     Возвращает (текст Mermaid, путь к .mmd, путь к .html).
     """
-    # Большие графы удобнее читать слева направо: длинные цепочки не растягиваются вниз.
-    text = to_mermaid(graph, reverse=reverse, direction="LR" if len(graph.edges) > 15 else "TD")
+    text = to_mermaid(
+        graph,
+        reverse=reverse,
+        direction=(
+            "LR"
+            if len(graph.edges) > HORIZONTAL_LAYOUT_NODE_THRESHOLD
+            else "TD"
+        ),
+    )
     os.makedirs(out_dir, exist_ok=True)
-    base = os.path.join(out_dir, safe_filename(("reverse_" if reverse else "") + graph.root))
+    base = os.path.join(
+        out_dir, safe_filename(("reverse_" if reverse else "") + graph.root)
+    )
     mmd_path, html_path = base + ".mmd", base + ".html"
     with open(mmd_path, "w", encoding="utf-8") as f:
         f.write(text)
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_page(title, text))
     if show:
-        webbrowser.open("file:///" + os.path.abspath(html_path).replace("\\", "/"))
+        webbrowser.open(
+            "file:///" + os.path.abspath(html_path).replace("\\", "/")
+        )
     return text, mmd_path, html_path

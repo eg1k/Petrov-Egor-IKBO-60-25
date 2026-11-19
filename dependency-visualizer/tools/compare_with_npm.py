@@ -17,8 +17,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from graph import build_graph  # noqa: E402
-from npm_registry import NpmRegistry  # noqa: E402
+from graph import build_graph
+from npm_registry import NpmRegistry
 
 REGISTRY = "https://registry.npmjs.org"
 
@@ -41,8 +41,11 @@ def npm_graph(ls_json_path):
     return nodes, edges
 
 
+CLI_ARG_COUNT = 4
+
+
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != CLI_ARG_COUNT:
         print(__doc__)
         return 2
     ls_path, package, version = sys.argv[1:]
@@ -61,7 +64,10 @@ def main():
         ("рёбра только у программы", edges - npm_edges),
         ("рёбра только у npm", npm_edges - edges),
     ]:
-        print(f"  {title}: " + (", ".join(sorted(map(str, diff))) if diff else "нет"))
+        print(
+            f"  {title}: "
+            + (", ".join(sorted(map(str, diff))) if diff else "нет")
+        )
     same = nodes == npm_nodes and edges == npm_edges
     print("  результат: " + ("графы совпадают" if same else "есть расхождения"))
     return 0 if same else 1

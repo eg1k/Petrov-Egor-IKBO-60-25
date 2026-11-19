@@ -6,10 +6,21 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from semver import SemverError, Version, max_satisfying  # noqa: E402
+from semver import SemverError, Version, max_satisfying
 
-VERSIONS = ["0.9.0", "1.0.0", "1.2.0", "1.2.5", "1.3.0-beta.1", "1.3.0",
-            "1.10.1", "2.0.0-rc.1", "2.0.0", "2.4.1", "3.0.0"]
+VERSIONS = [
+    "0.9.0",
+    "1.0.0",
+    "1.2.0",
+    "1.2.5",
+    "1.3.0-beta.1",
+    "1.3.0",
+    "1.10.1",
+    "2.0.0-rc.1",
+    "2.0.0",
+    "2.4.1",
+    "3.0.0",
+]
 
 
 class SemverTest(unittest.TestCase):
@@ -18,7 +29,9 @@ class SemverTest(unittest.TestCase):
 
     def test_order(self):
         self.assertLess(Version.parse("1.3.0-beta.1"), Version.parse("1.3.0"))
-        self.assertLess(Version.parse("1.3.0-beta.2"), Version.parse("1.3.0-beta.10"))
+        self.assertLess(
+            Version.parse("1.3.0-beta.2"), Version.parse("1.3.0-beta.10")
+        )
         self.assertLess(Version.parse("1.9.0"), Version.parse("1.10.0"))
 
     def test_exact_and_wildcards(self):

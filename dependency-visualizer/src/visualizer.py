@@ -27,46 +27,71 @@ def parse_args(argv=None):
         description="Визуализатор графа зависимостей npm-пакетов"
     )
     parser.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         default=DEFAULT_CONFIG,
-        help=f"путь к конфигурационному файлу YAML (по умолчанию {DEFAULT_CONFIG})",
+        help=(
+            "путь к конфигурационному файлу YAML "
+            f"(по умолчанию {DEFAULT_CONFIG})"
+        ),
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default=DEFAULT_OUTPUT,
-        help=f"каталог для файлов диаграммы .mmd и .html (по умолчанию {DEFAULT_OUTPUT})",
+        help=(
+            "каталог для файлов диаграммы .mmd и .html "
+            f"(по умолчанию {DEFAULT_OUTPUT})"
+        ),
     )
     parser.add_argument(
         "--no-show",
         action="store_true",
-        help="не открывать изображение графа в браузере (только сохранить файлы)",
+        help=(
+            "не открывать изображение графа в браузере "
+            "(только сохранить файлы)"
+        ),
     )
     return parser.parse_args(argv)
 
 
 def make_source(config, config_path):
-    """Создаёт источник данных и возвращает (источник, корневой узел)."""
+    """Создаёт источник данных и возвращает (источник, корневой узел).
+
+    Путь тестового репозитория отсчитывается от каталога конфигурации.
+    """
     if config.test_repo_mode == "file":
-        # Относительный путь отсчитывается от каталога конфигурационного файла.
         base = os.path.dirname(os.path.abspath(config_path))
-        source = TestRepository(os.path.normpath(os.path.join(base, config.repository)))
+        source = TestRepository(
+            os.path.normpath(os.path.join(base, config.repository))
+        )
         if config.package not in source.graph:
-            raise TestRepoError(f"пакет {config.package} не описан в тестовом репозитории")
+            raise TestRepoError(
+                f"пакет {config.package} не описан в тестовом репозитории"
+            )
         return source, config.package
     source = NpmRegistry(config.repository)
     return source, source.resolve(config.package, config.version)
 
 
 def print_graph(graph, config):
-    where = "тестовый репозиторий" if config.test_repo_mode == "file" else "репозиторий"
+    where = (
+        "тестовый репозиторий"
+        if config.test_repo_mode == "file"
+        else "репозиторий"
+    )
     print(f"Граф зависимостей {graph.root} ({where}: {config.repository})")
     if config.filter:
         print(f"Фильтр: пакеты, содержащие {config.filter!r}, не учитываются")
     print()
     for node, children in graph.edges.items():
-        print(f"  {node} -> {', '.join(children) if children else '(нет зависимостей)'}")
+        labels = ", ".join(children) or "(нет зависимостей)"
+        print(f"  {node} -> {labels}")
     print()
-    print(f"Пакетов: {len(graph.edges)}, зависимостей (рёбер): {graph.edge_count()}")
+    print(
+        f"Пакетов: {len(graph.edges)}, "
+        f"зависимостей (рёбер): {graph.edge_count()}"
+    )
 
     if graph.cycles:
         print("Циклические зависимости:")
@@ -83,25 +108,46 @@ def print_graph(graph, config):
 def print_reverse(rev, graph, config):
     """Вывод обратных зависимостей (только для этапа 4)."""
     target = rev.root
-    where = "тестовый репозиторий" if config.test_repo_mode == "file" else "репозиторий"
-    print(f"Обратные зависимости {target} в графе зависимостей {graph.root} "
-          f"({where}: {config.repository})")
+    where = (
+        "тестовый репозиторий"
+        if config.test_repo_mode == "file"
+        else "репозиторий"
+    )
+    print(
+        f"Обратные зависимости {target} в графе зависимостей {graph.root} "
+        f"({where}: {config.repository})"
+    )
     if config.filter:
         print(f"Фильтр: пакеты, содержащие {config.filter!r}, не учитываются")
     print()
     for node, parents in rev.edges.items():
-        print(f"  {node} <- {', '.join(parents) if parents else '(от него никто не зависит)'}")
+        labels = ", ".join(parents) or "(от него никто не зависит)"
+        print(f"  {node} <- {labels}")
     print()
+    _print_dependents(rev)
+    _print_reverse_cycles(rev.cycles)
+
+
+def _print_dependents(rev):
+    target = rev.root
     dependents = [n for n in rev.edges if n != target]
     direct = rev.edges[target]
-    print(f"Пакетов, зависящих от {target}: {len(dependents)} (напрямую: {len(direct)})")
+    print(
+        f"Пакетов, зависящих от {target}: {len(dependents)} "
+        f"(напрямую: {len(direct)})"
+    )
     if dependents:
         print("  напрямую: " + (", ".join(direct) if direct else "-"))
         transitive = [n for n in dependents if n not in direct]
-        print("  транзитивно: " + (", ".join(transitive) if transitive else "-"))
-    if rev.cycles:
+        print(
+            "  транзитивно: " + (", ".join(transitive) if transitive else "-")
+        )
+
+
+def _print_reverse_cycles(cycles):
+    if cycles:
         print("Циклические зависимости:")
-        for cycle in rev.cycles:
+        for cycle in cycles:
             print("  " + " <- ".join(cycle))
 
 
@@ -114,7 +160,36 @@ def visualize(graph, title, args, reverse=False):
     print("Граф на языке Mermaid:")
     print(text)
     print(f"Текст диаграммы сохранён: {mmd_path}")
-    print(f"Изображение: {html_path}" + ("" if args.no_show else " (открыто в браузере)"))
+    print(
+        f"Изображение: {html_path}"
+        + ("" if args.no_show else " (открыто в браузере)")
+    )
+
+
+def _show_reverse_graphs(graph, source, config, args):
+    """Показывает обратные зависимости внутри графа корневого пакета."""
+    targets = find_nodes(graph, source.name_of, config.reverse_of)
+    if not targets:
+        print(
+            f"Ошибка: пакет {config.reverse_of} не входит в граф зависимостей "
+            f"{graph.root}, обратных зависимостей нет",
+            file=sys.stderr,
+        )
+        return 1
+    for i, target in enumerate(targets):
+        if i:
+            print("\n" + "-" * 60 + "\n")
+        rev = reverse_dependencies(graph, target, source.name_of)
+        print_reverse(rev, graph, config)
+        visualize(
+            rev,
+            f"Обратные зависимости {target} в графе {graph.root}",
+            args,
+            reverse=True,
+        )
+    for warning in graph.warnings:
+        print(f"Предупреждение: {warning}", file=sys.stderr)
+    return 0
 
 
 def main(argv=None):
@@ -150,24 +225,7 @@ def main(argv=None):
         visualize(graph, f"Граф зависимостей {graph.root}", args)
         return 0
 
-    # Этап 4: обратные зависимости ищутся в графе зависимостей пакета package.
-    targets = find_nodes(graph, source.name_of, config.reverse_of)
-    if not targets:
-        print(
-            f"Ошибка: пакет {config.reverse_of} не входит в граф зависимостей "
-            f"{root}, обратных зависимостей нет",
-            file=sys.stderr,
-        )
-        return 1
-    for i, target in enumerate(targets):
-        if i:
-            print("\n" + "-" * 60 + "\n")
-        rev = reverse_dependencies(graph, target, source.name_of)
-        print_reverse(rev, graph, config)
-        visualize(rev, f"Обратные зависимости {target} в графе {graph.root}", args, reverse=True)
-    for warning in graph.warnings:
-        print(f"Предупреждение: {warning}", file=sys.stderr)
-    return 0
+    return _show_reverse_graphs(graph, source, config, args)
 
 
 if __name__ == "__main__":

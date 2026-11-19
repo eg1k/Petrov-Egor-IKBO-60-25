@@ -21,38 +21,51 @@ class TestRepoError(Exception):
     """Ошибка в файле тестового репозитория."""
 
 
-def parse_test_repo(path):
-    """Читает файл и возвращает словарь {пакет: [зависимости]}."""
+def _read_lines(path):
     try:
         with open(path, encoding="utf-8") as f:
-            lines = f.readlines()
+            return f.readlines()
     except UnicodeDecodeError:
         raise TestRepoError(f"файл {path} не в кодировке UTF-8")
     except OSError as e:
         raise TestRepoError(f"не удалось прочитать {path}: {e.strerror}")
 
+
+def _parse_entry(line, lineno, errors):
+    if ":" not in line:
+        errors.append(f"строка {lineno}: ожидается формат 'ПАКЕТ: ЗАВИСИМОСТИ'")
+        return None
+    name, deps_text = (part.strip() for part in line.split(":", 1))
+    deps = [d for d in re.split(r"[\s,]+", deps_text) if d]
+    bad = [n for n in [name] + deps if not NAME_RE.match(n)]
+    if bad:
+        errors.append(
+            f"строка {lineno}: имена пакетов должны состоять из больших "
+            f"латинских букв: {', '.join(repr(b) for b in bad)}"
+        )
+        return None
+    return name, deps
+
+
+def parse_test_repo(path):
+    """Читает файл и возвращает словарь {пакет: [зависимости]}."""
+    lines = _read_lines(path)
     graph, errors = {}, []
     for lineno, line in enumerate(lines, 1):
         line = line.split("#", 1)[0].strip()
         if not line:
             continue
-        if ":" not in line:
-            errors.append(f"строка {lineno}: ожидается формат 'ПАКЕТ: ЗАВИСИМОСТИ'")
+        entry = _parse_entry(line, lineno, errors)
+        if entry is None:
             continue
-        name, deps_text = (part.strip() for part in line.split(":", 1))
-        deps = [d for d in re.split(r"[\s,]+", deps_text) if d]
-        bad = [n for n in [name] + deps if not NAME_RE.match(n)]
-        if bad:
-            errors.append(
-                f"строка {lineno}: имена пакетов должны состоять из больших "
-                f"латинских букв: {', '.join(repr(b) for b in bad)}"
-            )
-            continue
+        name, deps = entry
         if name in graph:
             errors.append(f"строка {lineno}: пакет {name} описан повторно")
             continue
         if len(set(deps)) != len(deps):
-            errors.append(f"строка {lineno}: у пакета {name} повторяются зависимости")
+            errors.append(
+                f"строка {lineno}: у пакета {name} повторяются зависимости"
+            )
             continue
         graph[name] = deps
     if errors:

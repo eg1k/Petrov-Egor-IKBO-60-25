@@ -7,6 +7,7 @@ node-semver: точные версии, x-диапазоны, ~, ^, операт
 диапазоны через дефис и объединение через ||.
 """
 
+import operator
 import re
 
 VERSION_RE = re.compile(
@@ -40,17 +41,22 @@ class Version:
         if not m:
             raise SemverError(f"некорректная версия {text!r}")
         pre = tuple(m.group(4).split(".")) if m.group(4) else ()
-        return cls(int(m.group(1)), int(m.group(2)), int(m.group(3)), pre, text.strip())
+        return cls(
+            int(m.group(1)), int(m.group(2)), int(m.group(3)), pre, text.strip()
+        )
 
     def _format(self):
         s = f"{self.major}.{self.minor}.{self.patch}"
         return s + ("-" + ".".join(self.prerelease) if self.prerelease else "")
 
     def _key(self):
-        # Версия без prerelease старше любой своей prerelease-версии.
+        """Ставит стабильную версию выше её предварительных версий."""
         if not self.prerelease:
             return (self.major, self.minor, self.patch, 1, ())
-        ids = tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in self.prerelease)
+        ids = tuple(
+            (0, int(p), "") if p.isdigit() else (1, 0, p)
+            for p in self.prerelease
+        )
         return (self.major, self.minor, self.patch, 0, ids)
 
     def __eq__(self, other):
@@ -86,66 +92,104 @@ def _parse_partial(text):
     parts = []
     for g in m.group(1, 2, 3):
         parts.append(None if g is None or g in "xX*" else int(g))
-    # После подстановочного символа все младшие части тоже подстановочные.
     for i in range(1, 3):
         if parts[i - 1] is None:
             parts[i] = None
-    pre = tuple(m.group(4).split(".")) if m.group(4) and parts[2] is not None else ()
+    pre = (
+        tuple(m.group(4).split("."))
+        if m.group(4) and parts[2] is not None
+        else ()
+    )
     return parts[0], parts[1], parts[2], pre
+
+
+def _range_equal(major, minor, patch, pre):
+    if major is None:
+        return []
+    if minor is None:
+        return [(">=", Version(major, 0, 0)), ("<", Version(major + 1, 0, 0))]
+    if patch is None:
+        return [
+            (">=", Version(major, minor, 0)),
+            ("<", Version(major, minor + 1, 0)),
+        ]
+    return [("=", Version(major, minor, patch, pre))]
+
+
+def _range_tilde(major, minor, patch, pre):
+    if major is None:
+        return []
+    if minor is None:
+        return [(">=", Version(major, 0, 0)), ("<", Version(major + 1, 0, 0))]
+    return [
+        (">=", Version(major, minor, patch or 0, pre)),
+        ("<", Version(major, minor + 1, 0)),
+    ]
+
+
+def _range_caret(major, minor, patch, pre):
+    if major is None:
+        return []
+    low = Version(major, minor or 0, patch or 0, pre)
+    if major > 0 or minor is None:
+        return [(">=", low), ("<", Version(major + 1, 0, 0))]
+    if minor > 0 or patch is None:
+        return [(">=", low), ("<", Version(0, minor + 1, 0))]
+    return [(">=", low), ("<", Version(0, 0, patch + 1))]
+
+
+def _range_greater(major, minor, patch, pre):
+    if major is None:
+        return [("<", Version(0, 0, 0))]
+    if minor is None:
+        return [(">=", Version(major + 1, 0, 0))]
+    if patch is None:
+        return [(">=", Version(major, minor + 1, 0))]
+    return [(">", Version(major, minor, patch, pre))]
+
+
+def _range_at_least(major, minor, patch, pre):
+    if major is None:
+        return []
+    return [(">=", Version(major, minor or 0, patch or 0, pre))]
+
+
+def _range_less(major, minor, patch, pre):
+    if major is None:
+        return [("<", Version(0, 0, 0))]
+    return [("<", Version(major, minor or 0, patch or 0, pre))]
+
+
+def _range_at_most(major, minor, patch, pre):
+    if major is None:
+        return []
+    if minor is None:
+        return [("<", Version(major + 1, 0, 0))]
+    if patch is None:
+        return [("<", Version(major, minor + 1, 0))]
+    return [("<=", Version(major, minor, patch, pre))]
+
+
+_RANGE_OPERATORS = {
+    "": _range_equal,
+    "=": _range_equal,
+    "~": _range_tilde,
+    "~>": _range_tilde,
+    "^": _range_caret,
+    ">": _range_greater,
+    ">=": _range_at_least,
+    "<": _range_less,
+    "<=": _range_at_most,
+}
 
 
 def _comparators(op, text):
     """Переводит один элемент диапазона в список пар (оператор, Version)."""
-    M, m, p, pre = _parse_partial(text)
-    V = Version
-    if op in ("", "="):
-        if M is None:
-            return []
-        if m is None:
-            return [(">=", V(M, 0, 0)), ("<", V(M + 1, 0, 0))]
-        if p is None:
-            return [(">=", V(M, m, 0)), ("<", V(M, m + 1, 0))]
-        return [("=", V(M, m, p, pre))]
-    if op in ("~", "~>"):
-        if M is None:
-            return []
-        if m is None:
-            return [(">=", V(M, 0, 0)), ("<", V(M + 1, 0, 0))]
-        return [(">=", V(M, m, p or 0, pre)), ("<", V(M, m + 1, 0))]
-    if op == "^":
-        if M is None:
-            return []
-        low = V(M, m or 0, p or 0, pre)
-        if M > 0 or m is None:
-            return [(">=", low), ("<", V(M + 1, 0, 0))]
-        if m > 0 or p is None:
-            return [(">=", low), ("<", V(0, m + 1, 0))]
-        return [(">=", low), ("<", V(0, 0, p + 1))]
-    if op == ">":
-        if M is None:
-            return [("<", V(0, 0, 0))]  # ничему не удовлетворяет
-        if m is None:
-            return [(">=", V(M + 1, 0, 0))]
-        if p is None:
-            return [(">=", V(M, m + 1, 0))]
-        return [(">", V(M, m, p, pre))]
-    if op == ">=":
-        if M is None:
-            return []
-        return [(">=", V(M, m or 0, p or 0, pre))]
-    if op == "<":
-        if M is None:
-            return [("<", V(0, 0, 0))]
-        return [("<", V(M, m or 0, p or 0, pre))]
-    if op == "<=":
-        if M is None:
-            return []
-        if m is None:
-            return [("<", V(M + 1, 0, 0))]
-        if p is None:
-            return [("<", V(M, m + 1, 0))]
-        return [("<=", V(M, m, p, pre))]
-    raise SemverError(f"неизвестный оператор {op!r}")
+    parts = _parse_partial(text)
+    handler = _RANGE_OPERATORS.get(op)
+    if handler is None:
+        raise SemverError(f"неизвестный оператор {op!r}")
+    return handler(*parts)
 
 
 def _parse_set(text):
@@ -153,16 +197,28 @@ def _parse_set(text):
     text = text.strip()
     hyphen = re.match(r"^(\S+)\s+-\s+(\S+)$", text)
     if hyphen:
-        M, m, p, pre = _parse_partial(hyphen.group(1))
-        low = [] if M is None else [(">=", Version(M, m or 0, p or 0, pre))]
+        major, minor, patch, pre = _parse_partial(hyphen.group(1))
+        low = (
+            []
+            if major is None
+            else [(">=", Version(major, minor or 0, patch or 0, pre))]
+        )
         return low + _comparators("<=", hyphen.group(2))
-    # Убираем пробелы между оператором и версией: ">= 1.2" -> ">=1.2".
     text = re.sub(r"(<=|>=|<|>|=|~>|~|\^)\s+", r"\1", text)
     result = []
     for token in text.split():
         op, ver = COMPARATOR_RE.match(token).groups()
         result.extend(_comparators(op or "", ver))
     return result
+
+
+_MATCH_OPERATORS = {
+    "=": operator.eq,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+}
 
 
 class Range:
@@ -173,22 +229,13 @@ class Range:
         self.sets = [_parse_set(part) for part in text.split("||")]
 
     def _test_set(self, comps, v):
-        for op, bound in comps:
-            if op == "=" and not v == bound:
-                return False
-            if op == ">" and not v > bound:
-                return False
-            if op == ">=" and not v >= bound:
-                return False
-            if op == "<" and not v < bound:
-                return False
-            if op == "<=" and not v <= bound:
-                return False
+        """Для prerelease требует явную границу с той же основной версией."""
+        if not all(_MATCH_OPERATORS[op](v, bound) for op, bound in comps):
+            return False
         if v.prerelease:
-            # Prerelease-версия подходит, только если в диапазоне явно
-            # указана prerelease-версия с теми же MAJOR.MINOR.PATCH.
             return any(
-                b.prerelease and (b.major, b.minor, b.patch) == (v.major, v.minor, v.patch)
+                b.prerelease
+                and (b.major, b.minor, b.patch) == (v.major, v.minor, v.patch)
                 for _, b in comps
             )
         return True
@@ -198,7 +245,7 @@ class Range:
 
 
 def max_satisfying(versions, range_text):
-    """Наибольшая версия из versions (строки), подходящая под диапазон, или None."""
+    """Возвращает наибольшую подходящую версию или None."""
     rng = Range(range_text)
     best = None
     for text in versions:

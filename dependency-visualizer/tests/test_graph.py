@@ -7,8 +7,8 @@ import unittest
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
-from graph import build_graph, find_nodes, reverse_dependencies  # noqa: E402
-from test_repo import TestRepoError, TestRepository  # noqa: E402
+from graph import build_graph, find_nodes, reverse_dependencies
+from test_repo import TestRepoError, TestRepository
 
 
 def repo(name):
@@ -18,7 +18,9 @@ def repo(name):
 class GraphTest(unittest.TestCase):
     def test_transitive(self):
         g = build_graph(repo("simple.txt"), "A")
-        self.assertEqual(g.edges, {"A": ["B", "C"], "B": ["D"], "D": [], "C": ["D"]})
+        self.assertEqual(
+            g.edges, {"A": ["B", "C"], "B": ["D"], "D": [], "C": ["D"]}
+        )
         self.assertEqual(g.cycles, [])
 
     def test_cycle(self):
@@ -56,7 +58,6 @@ class GraphTest(unittest.TestCase):
     def test_bad_file(self):
         with self.assertRaises(TestRepoError):
             repo("err_format.txt")
-
 
 
 class ReverseTest(unittest.TestCase):
