@@ -1,0 +1,20 @@
+start: declaration* value
+declaration: value "->" NAME
+
+?value: SIGNED_INT -> integer
+      | STRING     -> string
+      | dictionary
+      | reference
+
+dictionary: "begin" entry* "end"
+entry: NAME ":=" value ";"
+reference: "![" NAME "]"
+
+NAME: /[_a-zA-Z]+/
+STRING: /'[^'\r\n]*'/
+COMMENT: /%\{[\s\S]*?%\}/
+
+%import common.SIGNED_INT
+%import common.WS
+%ignore WS
+%ignore COMMENT
